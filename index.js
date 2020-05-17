@@ -16,9 +16,22 @@
 /**************  BOILERPLATE AND SETUP  *************/
 const express = require("express");
 const bodyParser = require("body-parser");
+const mysql = require("mysql2");
 const app = express();
 const Parser = require("rss-parser");
 const parser = new Parser();
+// password setup
+const bcrypt = require("bcrypt");
+const saltRounds = 10;
+
+// const dbConfig = {
+// 	host: "localhost",
+// 	user: "serveruser",
+// 	password: "s3rv3rp4ssw0rd",
+// 	schema: "theDartmouth",
+// };
+// global.connection = mysql.createConnection(dbConfig);
+// connection.connect();
 
 app.use((req, res, next) => {
 	console.log("/" + req.method);
@@ -44,8 +57,22 @@ const fetchFeed = async (req, res, next) => {
 		"https://www.thedartmouth.com/plugin/feeds/the-dartmouth-articles-feed.xml"
 	);
 	req.feed = feed;
-	// console.log(feed.title);
 	next();
+};
+
+// TODO: need to set up mysql schema, then add the boilerplate up top, then develop authentication
+const authenticate = async (req, res, next) => {
+	if (
+		req == null ||
+		req.body == null ||
+		req.body.Username == null ||
+		req.body.Password == null
+	) {
+		console.log("invalid login");
+		res.send(JSON.stringify({ status: 401, error: "login invalid" }));
+		return false;
+	}
+	global.connectt;
 };
 
 // const testMiddleware = async (req,res,next) => {
@@ -54,15 +81,12 @@ const fetchFeed = async (req, res, next) => {
 //   next();
 // }
 
-// blank GET to test connection
-app.get("/", fetchFeed, (req, res) => {
-	console.log(req.feed);
+app.get("/", (req, res) => {
+	res.send("server's up what's up :)))");
+});
 
-	// req.feed.items.forEach(item => {
-	//     console.log(item.title + ':' + item.link)
-	// });
-
-	// res.send("server's up what's up :)))");
+app.get("/all", fetchFeed, (req, res) => {
+	// console.log(req.feed);
 	res.send(
 		req.feed.items.map((item) => ({
 			title: item.title,
@@ -74,40 +98,124 @@ app.get("/", fetchFeed, (req, res) => {
 	);
 });
 
-app.get("/:category", fetchFeed, (req, res) => {
+app.get("/category/:category", fetchFeed, (req, res) => {
 	console.log(req.params.category);
-
-	let items = req.feed.items.map((item) => ({
-		title: item.title,
-		author: item.author,
-		categories: item.categories,
-		pubDate: item.pubDate,
-		content: item.content,
-	}));
-
-	// let newitems = items.filter((item) => {
-	//   item.author == "Anna May Mott";
-	// });
-	// console.log(typeof JSON.parse(JSON.stringify(items[0].categories)));
-	// console.log(
-	//   JSON.parse(JSON.stringify(items[0].categories)).includes("Sports")
-	// );
-	// console.log(new Array(items[0].categories));
-	let newitems = items.filter((item) => {
-		// item.categories && console.log(JSON.parse(JSON.stringify(item.categories)));
-		if (!item.categories) return;
-		let boolean = false;
-		JSON.parse(JSON.stringify(item.categories)).forEach((category) => {
-			// console.log(category);
-			boolean =
-				boolean || category.toLowerCase() === req.params.category.toLowerCase();
+	let results = req.feed.items
+		.map((item) => ({
+			title: item.title,
+			author: item.author,
+			categories: item.categories,
+			pubDate: item.pubDate,
+			content: item.content,
+		}))
+		.filter((item) => {
+			if (!item.categories) return false;
+			let boolean = false;
+			JSON.parse(JSON.stringify(item.categories)).forEach((category) => {
+				boolean =
+					boolean ||
+					category.toLowerCase() === req.params.category.toLowerCase();
+			});
+			return boolean;
 		});
-		// console.log(typeof categories);
+	res.send(
+		JSON.stringify({
+			status: 200,
+			error: null,
+			response: results,
+		})
+	);
+});
 
-		// console.log(boolean);
-		return boolean;
-		// return categories.includes(req.params.category);
-	});
+app.get("/category", fetchFeed, (req, res) => {
+	console.log(req.body.categories);
+	if (!req.body.categories) {
+		res.send(
+			JSON.stringify({
+				status: 404,
+				error: "no categories requested",
+			})
+		);
+	}
+	const categoriesSet = new Set(
+		req.body.categories.map((category) => category.toLowerCase())
+	);
+	let results = req.feed.items
+		.map((item) => ({
+			title: item.title,
+			author: item.author,
+			categories: item.categories,
+			pubDate: item.pubDate,
+			content: item.content,
+		}))
+		.filter((item) => {
+			if (!item.categories) return false;
+			let boolean = false;
+			JSON.parse(JSON.stringify(item.categories)).forEach((category) => {
+				boolean = boolean || categoriesSet.has(category.toLowerCase());
+			});
+			return boolean;
+		});
+	res.send(
+		JSON.stringify({
+			status: 200,
+			error: null,
+			response: results,
+		})
+	);
+});
 
-	res.send(newitems);
+app.get("/author/:author", fetchFeed, (req, res) => {
+	console.log(req.params.author);
+	let results = req.feed.items
+		.map((item) => ({
+			title: item.title,
+			author: item.author,
+			categories: item.categories,
+			pubDate: item.pubDate,
+			content: item.content,
+		}))
+		.filter(
+			(item) =>
+				item.author &&
+				item.author.toLowerCase() === req.params.author.toLowerCase()
+		);
+	res.send(
+		JSON.stringify({
+			status: 200,
+			error: null,
+			response: results,
+		})
+	);
+});
+
+app.get("/author", fetchFeed, (req, res) => {
+	console.log(req.body.authors);
+	if (!req.body.authors) {
+		res.send(
+			JSON.stringify({
+				status: 404,
+				error: "no authors requested",
+			})
+		);
+	}
+	const authorSet = new Set(
+		req.body.authors.map((author) => author.toLowerCase())
+	);
+	let results = req.feed.items
+		.map((item) => ({
+			title: item.title,
+			author: item.author,
+			categories: item.categories,
+			pubDate: item.pubDate,
+			content: item.content,
+		}))
+		.filter((item) => item.author && authorSet.has(item.author.toLowerCase()));
+	res.send(
+		JSON.stringify({
+			status: 200,
+			error: null,
+			response: results,
+		})
+	);
 });
