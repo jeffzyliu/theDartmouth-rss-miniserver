@@ -95,14 +95,17 @@ app.get("/:category", fetchFeed, (req, res) => {
 	// console.log(new Array(items[0].categories));
 	let newitems = items.filter((item) => {
 		// item.categories && console.log(JSON.parse(JSON.stringify(item.categories)));
-		return (
-			item.categories &&
-			JSON.parse(JSON.stringify(item.categories)).includes(req.params.category)
-		);
+		if (!item.categories) return;
+		let boolean = false;
+		JSON.parse(JSON.stringify(item.categories)).forEach((category) => {
+			// console.log(category);
+			boolean =
+				boolean || category.toLowerCase() === req.params.category.toLowerCase();
+		});
 		// console.log(typeof categories);
 
-		// console.log(categories);
-		// return false;
+		// console.log(boolean);
+		return boolean;
 		// return categories.includes(req.params.category);
 	});
 
