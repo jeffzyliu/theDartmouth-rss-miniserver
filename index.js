@@ -14,7 +14,7 @@
  * @author Jeff Liu
  * @date May 2020
  */
- 
+
 /**************  BOILERPLATE AND SETUP  *************/
 const express = require("express");
 const bodyParser = require("body-parser");
@@ -132,6 +132,7 @@ app.get("/category", fetchFeed, (req, res) => {
 	console.log(req.body.categories);
 	if (!req.body.categories) {
 		res.send(JSON.stringify({ status: 404, error: "no categories requested" }));
+		return;
 	}
 	// use helper function below for cleaner code
 	const results = twoArrayMatches(req.body.categories, req.feed, "categories");
@@ -142,7 +143,7 @@ app.get("/category", fetchFeed, (req, res) => {
  * helper function used to match all feed items with an array of attributes
  * that matches up with any attribute of a parameter type in our reqArray
  *
- * basically tries to find any match where x=y in the cartesian product of the two sets
+ * basically tries to find set intersection
  *
  * case-insensitive
  *
@@ -203,6 +204,7 @@ app.get("/author", fetchFeed, (req, res) => {
 	console.log(req.body.authors);
 	if (!req.body.authors) {
 		res.send(JSON.stringify({ status: 404, error: "no authors requested" }));
+		return;
 	}
 	// use helper function below
 	const results = arrayMatches(req.body.authors, req.feed, "author");
@@ -253,7 +255,9 @@ const authenticate = async (req, res, next) => {
 			results,
 			fields,
 		] = await global.pool.execute(
-			"SELECT UserID, HashedPassword FROM theDartmouth.Users WHERE Username LIKE ?",
+			"SELECT UserID, HashedPassword FROM " +
+				config.database.database +
+				".Users WHERE Username LIKE ?",
 			[req.body.Username]
 		);
 	} catch (error) {
@@ -276,7 +280,8 @@ const authenticate = async (req, res, next) => {
 	}
 	// correct pass
 	console.log(req.body.Username + " login success");
-	req.userID = results[0].userID;
+	// console.log(results[0]);
+	req.UserID = results[0].UserID;
 	next();
 };
 
@@ -284,11 +289,176 @@ const authenticate = async (req, res, next) => {
  * GET /login
  * does a login attempt to verify authentication before continuing
  *
+ * @input body:
+ *    Username
+ *    Password
+ * @return
+ *    200 success message with UserID of logged user
+ *    401 for login failure
+ *    500 for uncaught server error
  */
-// app.get("/login", authenticate, (req, res) => {
-//   console.log(req.body);
-//   res.send(JSON.stringify({status: 200, error: "null", userID: req.}))
-// });
+app.get("/login", authenticate, (req, res) => {
+	console.log(req.body);
+	res.send(JSON.stringify({ status: 200, error: "null", UserID: req.UserID }));
+});
+
+/**
+ * helper middleware to query the database for authors
+ * @param {*} req
+ * @param {*} res
+ * @param {*} next
+ */
+const queryAuthors = async (req, res, next) => {
+	let authors, fields;
+	try {
+		[
+			authors,
+			fields,
+		] = await global.pool.execute(
+			"SELECT AuthorID, AuthorName FROM " +
+				config.database.database +
+				".SavedAuthors WHERE UserID = ?",
+			[req.UserID]
+		);
+	} catch (error) {
+		console.log(error);
+		res.send(JSON.stringify({ status: 500, error: "internal server error" }));
+		return;
+	}
+	console.log(authors);
+	req.SavedAuthors = authors;
+	next();
+};
+
+/**
+ * helper middleware to query the database for tags/categories
+ * @param {*} req
+ * @param {*} res
+ * @param {*} next
+ */
+const queryTags = async (req, res, next) => {
+	let tags, fields;
+	try {
+		[tags, fields] = await global.pool.execute(
+			"SELECT TagID, TagString FROM " +
+				config.database.database +
+				".SavedTags WHERE UserID = ?",
+			[req.UserID]
+		);
+	} catch (error) {
+		console.log(error);
+		res.send(JSON.stringify({ status: 500, error: "internal server error" }));
+		return;
+	}
+	console.log(tags);
+	req.SavedTags = tags;
+	next();
+};
+
+/**
+ * GET /user
+ * grabs a list of a user's favorite authors and categories
+ *
+ * @input body:
+ *    Username
+ *    Password
+ * @return
+ *    200 success message with arrays of authors and tags
+ *    401 for login failure
+ *    500 for uncaught server error
+ */
+app.get("/user", authenticate, queryAuthors, queryTags, async (req, res) => {
+	console.log(req.body);
+	res.send(
+		JSON.stringify({
+			status: 200,
+			error: "null",
+			SavedAuthors: req.SavedAuthors,
+			SavedTags: req.SavedTags,
+		})
+	);
+});
+
+const parseQueriedAuthors = (req, res, next) => {
+	if (!req.SavedAuthors) next();
+	req.ParsedAuthors = req.SavedAuthors.map((author) => author.AuthorName);
+	console.log(req.ParsedAuthors);
+	next();
+};
+
+const parseQueriedTags = (req, res, next) => {
+	if (!req.SavedTags) next();
+	req.ParsedTags = req.SavedTags.map((tag) => tag.TagString);
+	console.log(req.ParsedTags);
+	next();
+};
+
+app.get(
+	"/user/feed",
+	authenticate,
+	queryAuthors,
+	parseQueriedAuthors,
+	queryTags,
+	parseQueriedTags,
+	fetchFeed,
+	(req, res) => {
+		console.log(req.body);
+		const results = arrayAndTwoArrayMatches(
+			req.ParsedAuthors,
+			req.ParsedTags,
+			req.feed,
+			"author",
+			"categories"
+		);
+		res.send(
+			JSON.stringify({
+				status: 200,
+				error: "null",
+				response: results,
+			})
+		);
+	}
+);
+
+/**
+ * helper function that combines the functionality of the two earlier array matching
+ * functions, god help me this is convoluted
+ *
+ * case-insensitive
+ *
+ * @param {Array} reqArray1 list of attributes we care about (belongs to set)
+ * @param {Array} reqArray2 of attributes we care about (has intersection of sets)
+ * @param {Array} feedArray feed of RSS articles to filter through
+ * @param {String} searchParam1 first search parameter (belongs)
+ * @param {String} searchParam2 second search parameter (intersection)
+ */
+const arrayAndTwoArrayMatches = (
+	reqArray1,
+	reqArray2,
+	feedArray,
+	searchParam1,
+	searchParam2
+) => {
+	const reqSet1 = new Set(reqArray1.map((reqItem) => reqItem.toLowerCase()));
+	const reqSet2 = new Set(reqArray2.map((reqItem) => reqItem.toLowerCase()));
+	return feedArray.filter((feedItem) => {
+		if (!feedItem[searchParam1] && !feedItem[searchParam2]) return false;
+		let boolean = false;
+		// look for belongs on 1
+		if (feedItem[searchParam1]) {
+			boolean = boolean || reqSet1.has(feedItem[searchParam1].toLowerCase());
+		}
+		// avoid expensive category search if author search worked
+		if (boolean) return true;
+		// look for set intersection on 2
+		if (feedItem[searchParam2]) {
+			JSON.parse(JSON.stringify(feedItem[searchParam2])).forEach((param) => {
+				boolean = boolean || reqSet2.has(param.toLowerCase());
+			});
+		}
+		return boolean;
+	});
+};
 
 /**
  * POST /user
@@ -317,12 +487,10 @@ app.post("/user", async (req, res) => {
 	let results, fields;
 	try {
 		// insert the new user
-		[
-			results,
-			fields,
-		] = await global.pool.execute(
-			"INSERT INTO theDartmouth.Users (Username, HashedPassword) \
-      VALUES (?, ?)",
+		[results, fields] = await global.pool.execute(
+			"INSERT INTO " +
+				config.database.database +
+				".Users (Username, HashedPassword) VALUES (?, ?)",
 			[req.body.Username, HashedPassword]
 		);
 	} catch (err) {
