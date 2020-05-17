@@ -16,7 +16,7 @@
 /**************  BOILERPLATE AND SETUP  *************/
 const express = require("express");
 const bodyParser = require("body-parser");
-const mysql = require("mysql2");
+const mysql = require("mysql2/promise");
 const app = express();
 const Parser = require("rss-parser");
 const parser = new Parser();
@@ -24,14 +24,23 @@ const parser = new Parser();
 const bcrypt = require("bcrypt");
 const saltRounds = 10;
 
-// const dbConfig = {
-// 	host: "localhost",
-// 	user: "serveruser",
-// 	password: "s3rv3rp4ssw0rd",
-// 	schema: "theDartmouth",
-// };
 // global.connection = mysql.createConnection(dbConfig);
-// connection.connect();
+
+// const createdb = async () => {
+const dbConfig = {
+	host: "localhost",
+	user: "serverUser",
+	password: "s3rv3rp4ssw0rd",
+	database: "theDartmouth",
+};
+
+global.pool = mysql.createPool(dbConfig);
+// };
+
+// createdb();
+
+// const [rows, fields] = global.pool.execute("select * from Users");
+// console.log(rows);
 
 app.use((req, res, next) => {
 	console.log("/" + req.method);
@@ -56,7 +65,13 @@ const fetchFeed = async (req, res, next) => {
 	let feed = await parser.parseURL(
 		"https://www.thedartmouth.com/plugin/feeds/the-dartmouth-articles-feed.xml"
 	);
-	req.feed = feed;
+	req.feed = feed.items.map((item) => ({
+		title: item.title,
+		author: item.author,
+		categories: item.categories,
+		pubDate: item.pubDate,
+		content: item.content,
+	}));
 	next();
 };
 
@@ -72,7 +87,20 @@ const authenticate = async (req, res, next) => {
 		res.send(JSON.stringify({ status: 401, error: "login invalid" }));
 		return false;
 	}
-	global.connectt;
+	try {
+		const [
+			rows,
+			fields,
+		] = await global.pool.execute(
+			"SELECT UserID, HashedPassword FROM Users WHERE Username LIKE ?",
+			[req.body.Username]
+		);
+		console.log(rows);
+		console.log(fields);
+	} catch (error) {
+		console.log(error);
+	}
+	next();
 };
 
 // const testMiddleware = async (req,res,next) => {
@@ -81,43 +109,31 @@ const authenticate = async (req, res, next) => {
 //   next();
 // }
 
-app.get("/", (req, res) => {
+// app.use(async (req, res, next) => {
+//   const [rows, fields] = await global.pool.execute("select * from Users");
+// 	console.log(rows);
+// });
+
+app.get("/", authenticate, (req, res) => {
 	res.send("server's up what's up :)))");
 });
 
 app.get("/all", fetchFeed, (req, res) => {
 	// console.log(req.feed);
-	res.send(
-		req.feed.items.map((item) => ({
-			title: item.title,
-			author: item.author,
-			categories: item.categories,
-			pubDate: item.pubDate,
-			content: item.content,
-		}))
-	);
+	res.send(JSON.stringify({ status: 200, error: null, response: req.feed }));
 });
 
 app.get("/category/:category", fetchFeed, (req, res) => {
 	console.log(req.params.category);
-	let results = req.feed.items
-		.map((item) => ({
-			title: item.title,
-			author: item.author,
-			categories: item.categories,
-			pubDate: item.pubDate,
-			content: item.content,
-		}))
-		.filter((item) => {
-			if (!item.categories) return false;
-			let boolean = false;
-			JSON.parse(JSON.stringify(item.categories)).forEach((category) => {
-				boolean =
-					boolean ||
-					category.toLowerCase() === req.params.category.toLowerCase();
-			});
-			return boolean;
+	let results = req.feed.filter((item) => {
+		if (!item.categories) return false;
+		let boolean = false;
+		JSON.parse(JSON.stringify(item.categories)).forEach((category) => {
+			boolean =
+				boolean || category.toLowerCase() === req.params.category.toLowerCase();
 		});
+		return boolean;
+	});
 	res.send(
 		JSON.stringify({
 			status: 200,
@@ -137,25 +153,7 @@ app.get("/category", fetchFeed, (req, res) => {
 			})
 		);
 	}
-	const categoriesSet = new Set(
-		req.body.categories.map((category) => category.toLowerCase())
-	);
-	let results = req.feed.items
-		.map((item) => ({
-			title: item.title,
-			author: item.author,
-			categories: item.categories,
-			pubDate: item.pubDate,
-			content: item.content,
-		}))
-		.filter((item) => {
-			if (!item.categories) return false;
-			let boolean = false;
-			JSON.parse(JSON.stringify(item.categories)).forEach((category) => {
-				boolean = boolean || categoriesSet.has(category.toLowerCase());
-			});
-			return boolean;
-		});
+	const results = twoArrayMatches(req.body.categories, req.feed, "categories");
 	res.send(
 		JSON.stringify({
 			status: 200,
@@ -165,21 +163,25 @@ app.get("/category", fetchFeed, (req, res) => {
 	);
 });
 
+const twoArrayMatches = (reqArray, feedArray, searchParam) => {
+	const reqSet = new Set(reqArray.map((reqItem) => reqItem.toLowerCase()));
+	return feedArray.filter((feedItem) => {
+		if (!feedItem[searchParam]) return false;
+		let boolean = false;
+		JSON.parse(JSON.stringify(feedItem[searchParam])).forEach((param) => {
+			boolean = boolean || reqSet.has(param.toLowerCase());
+		});
+		return boolean;
+	});
+};
+
 app.get("/author/:author", fetchFeed, (req, res) => {
 	console.log(req.params.author);
-	let results = req.feed.items
-		.map((item) => ({
-			title: item.title,
-			author: item.author,
-			categories: item.categories,
-			pubDate: item.pubDate,
-			content: item.content,
-		}))
-		.filter(
-			(item) =>
-				item.author &&
-				item.author.toLowerCase() === req.params.author.toLowerCase()
-		);
+	let results = req.feed.filter(
+		(item) =>
+			item.author &&
+			item.author.toLowerCase() === req.params.author.toLowerCase()
+	);
 	res.send(
 		JSON.stringify({
 			status: 200,
@@ -192,25 +194,9 @@ app.get("/author/:author", fetchFeed, (req, res) => {
 app.get("/author", fetchFeed, (req, res) => {
 	console.log(req.body.authors);
 	if (!req.body.authors) {
-		res.send(
-			JSON.stringify({
-				status: 404,
-				error: "no authors requested",
-			})
-		);
+		res.send(JSON.stringify({ status: 404, error: "no authors requested" }));
 	}
-	const authorSet = new Set(
-		req.body.authors.map((author) => author.toLowerCase())
-	);
-	let results = req.feed.items
-		.map((item) => ({
-			title: item.title,
-			author: item.author,
-			categories: item.categories,
-			pubDate: item.pubDate,
-			content: item.content,
-		}))
-		.filter((item) => item.author && authorSet.has(item.author.toLowerCase()));
+	const results = arrayMatches(req.body.authors, req.feed, "author");
 	res.send(
 		JSON.stringify({
 			status: 200,
@@ -219,3 +205,11 @@ app.get("/author", fetchFeed, (req, res) => {
 		})
 	);
 });
+
+const arrayMatches = (reqArray, feedArray, searchParam) => {
+	const reqSet = new Set(reqArray.map((reqItem) => reqItem.toLowerCase()));
+	return feedArray.filter(
+		(feedItem) =>
+			feedItem[searchParam] && reqSet.has(feedItem[searchParam].toLowerCase())
+	);
+};
