@@ -17,6 +17,8 @@ const {
 
 /**************** NON-AUTHENTICATED GENERAL ROUTES *******************/
 
+/**************** /GET *******************/
+
 /**
  * GET /all
  *
