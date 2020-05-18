@@ -28,7 +28,7 @@ Go ahead and fire up Postman because Postman, without question, is by far the be
 * Try logging in by passing in "Username" and "Password" in every *request body* you send when using the `/user/` path. I've already added a user called "testingUser" with password "password", but feel free to add more by calling a POST on `/user/` with a new "Username", "Password" JSON.
 * To see your profile, call a GET on `/user/`. Make sure to keep your username and password in the request body. I haven't implemented sessions in this server and you sadly need to provide login info every time.
 * To add your favorite authors and categories, call a few POST requests on `/user/author` or `/user/category` to insert a "NewAuthor" or "NewCategory".
-* **Here's the fun part: after adding any authors/categories, you can GET `/user/feed/` for an automatically formatted query that will return all your favorite content in one request. You can also selectively do this for `/user/author/` or `/user/category`.
+* **Here's the fun part: after adding any authors/categories, you can GET `/user/feed/` for an automatically formatted query that will return all your favorite content in one request. You can also selectively do this for `/user/author/` or `/user/category`.**
 * To delete any favorites, call DELETE requests instead.
 * To change your password, call PUT on `/user/`. See the comments for more details.
 * To delete your account (how could you!), call DELETE on `/user/`.
