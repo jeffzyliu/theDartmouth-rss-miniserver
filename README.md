@@ -39,5 +39,3 @@ Go ahead and fire up Postman because Postman, without question, is by far the be
 
 
 ### Have fun being deeply educated by only your favorite posts on The Dartmouth's RSS feed!
-
-### Note to DALI: This is sort of a hybrid of the API and Backend challenges. Since it doesn't really fit into either one of those, I'm going to attach my old website as well to check off the box for doing a coding challenge. However, I would like to be evaluated by my work here first and foremost.
